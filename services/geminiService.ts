@@ -47,6 +47,7 @@ export const gradeStage = async (stage: Stage, sentence: string, data: any) => {
     Monday: Parts of Speech for every word WITH sub-types. 
     - Nouns must specify function (Subject, Direct Object, Indirect Object, Object of Preposition, Appositive, Predicate Nominative, Direct Address).
     - Verbs must specify type (Action Transitive/Intransitive, Linking, Helping).
+    - Verbals must specify type (Gerund, Participle, Infinitive).
     - Pronouns must specify type (Personal Nominative/Objective/Possessive, Relative, Demonstrative, Indefinite, Reflexive).
     - Adjectives must specify type (Common, Proper, Article).
     - Conjunctions must specify type (Coordinating, Subordinating, Correlative).
@@ -79,11 +80,16 @@ export const gradeStage = async (stage: Stage, sentence: string, data: any) => {
   return JSON.parse(response.text);
 };
 
-export const generatePhonkHype = async (stage: Stage) => {
+export const generateAudioTrack = async (stage: Stage) => {
   const prompt = `
-    Perform a 10-second HIGH-ENERGY INSTRUMENTAL GEN ALPHA PHONK track for the stage: ${stage}. 
-    NO LYRICS. NO SPEAKING. ONLY SOUNDS: 'DOOM-KAH-DOOM', 'BZZZT', 'Tink-tink' (cowbells).
-    Include rhythmic female vocal stabs like "GO!" or "HEY!".
+    Perform a brand new 10-second ULTRA-SMOOTH AMBIENT ELECTRONICA track for the stage: ${stage}. 
+    STRICTLY INSTRUMENTAL. NO LYRICS. 
+    Sound Palette:
+    - Warm, low-pass filtered synth pads (swelling 'huuuuuuuuu-waaaaaaah').
+    - Minimalist rhythmic clicks and rain-like hi-hats ('tih-tih-tih').
+    - A deep, mellow sub-bass pulse at 80bpm.
+    - Soft, crystalline melodic echoes.
+    Atmosphere: Sophisticated chill lounge, high-end cafe vibes, extremely relaxing and atmospheric.
   `;
   
   const response = await ai.models.generateContent({
@@ -93,7 +99,7 @@ export const generatePhonkHype = async (stage: Stage) => {
       responseModalities: ['AUDIO' as any],
       speechConfig: {
         voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: 'Kore' }
+          prebuiltVoiceConfig: { voiceName: 'Zephyr' }
         }
       }
     }

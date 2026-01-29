@@ -1,17 +1,18 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Stage, Difficulty, DGPState, PartOfSpeech, FridaySlot } from './types';
-import { generateSentenceBatch, gradeStage, generatePhonkHype } from './services/geminiService';
+import { generateSentenceBatch, gradeStage, generateAudioTrack } from './services/geminiService';
 import { AudioPlayer } from './components/AudioPlayer';
 
 const POS_LIST: PartOfSpeech[] = [
-  'Noun', 'Verb', 'Pronoun', 'Adjective', 'Adverb', 
+  'Noun', 'Verb', 'Verbal', 'Pronoun', 'Adjective', 'Adverb', 
   'Preposition', 'Conjunction', 'Interjection'
 ];
 
 const SUBTYPES: Record<string, string[]> = {
   'Noun': ['Subject', 'Direct Object', 'Indirect Object', 'Object of Preposition', 'Appositive', 'Predicate Nominative', 'Direct Address'],
   'Verb': ['Action (Transitive)', 'Action (Intransitive)', 'Linking', 'Helping'],
+  'Verbal': ['Gerund', 'Participle', 'Infinitive'],
   'Pronoun': ['Personal (Nominative)', 'Personal (Objective)', 'Personal (Possessive)', 'Relative', 'Demonstrative', 'Indefinite', 'Reflexive'],
   'Adjective': ['Common', 'Proper', 'Article'],
   'Conjunction': ['Coordinating', 'Subordinating', 'Correlative']
@@ -93,7 +94,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     fillSentencePool(gameState.difficulty, true);
-    generatePhonkHype(Stage.MONDAY).then(setHypeAudio);
+    generateAudioTrack(Stage.MONDAY).then(setHypeAudio);
   }, []);
 
   const changeDifficulty = (d: Difficulty) => {
@@ -115,7 +116,6 @@ const App: React.FC = () => {
       const pool = [...prev.sentencePool];
       const next = pool.shift() || '';
       
-      // If pool getting low, trigger a fetch (side effect handled via effect or just call here)
       if (pool.length < 2) {
         setTimeout(() => fillSentencePool(prev.difficulty), 100);
       }
@@ -135,7 +135,6 @@ const App: React.FC = () => {
 
   const handleMondayTag = (wordIdx: number, pos: PartOfSpeech) => {
     setGameState(prev => {
-      const current = prev.history[Stage.MONDAY].tags[wordIdx] || {};
       return {
         ...prev,
         history: {
@@ -218,7 +217,6 @@ const App: React.FC = () => {
         const nextStage = STAGE_ORDER[currentIndex + 1];
         
         if (gameState.currentStage === Stage.FRIDAY) {
-          // Finished the whole week!
           setGameState(prev => ({ ...prev, isLoading: false, feedback: result.feedback }));
           setTimeout(() => nextSentenceFromPool(), 1500);
         } else {
@@ -231,7 +229,7 @@ const App: React.FC = () => {
           }));
 
           if (nextStage) {
-            const audio = await generatePhonkHype(nextStage);
+            const audio = await generateAudioTrack(nextStage);
             setHypeAudio(audio);
           }
         }
@@ -371,7 +369,7 @@ const App: React.FC = () => {
 
         return (
           <div className="flex flex-col gap-2 items-center py-1 w-full">
-            <div className="flex flex-wrap gap-1 justify-center max-w-lg bg-zinc-900/30 p-1 rounded-md border border-zinc-800 w-full">
+            <div className="flex flex-wrap gap-1 justify-center max-lg bg-zinc-900/30 p-1 rounded-md border border-zinc-800 w-full">
               {words.map((word, idx) => {
                 const isUsed = gameState.history[Stage.FRIDAY].slots.some((s: FridaySlot) => s.wordIdx === idx);
                 return (
@@ -429,7 +427,7 @@ const App: React.FC = () => {
     <div className="h-screen bg-black text-white selection:bg-cyan-500 selection:text-black overflow-hidden flex flex-col">
       <AudioPlayer base64Audio={hypeAudio} enabled={gameState.musicEnabled} />
       
-      {/* Phonk Control & Difficulty */}
+      {/* Audio & Difficulty Control */}
       <div className="fixed top-1 left-1 z-[100] flex items-center gap-2 bg-zinc-950/80 p-0.5 pr-2 rounded-full border border-zinc-800 backdrop-blur-md">
         <button 
           onClick={toggleMusic}
@@ -476,7 +474,7 @@ const App: React.FC = () => {
           {gameState.isLoading && (
             <div className="absolute inset-0 bg-black/95 z-[60] flex flex-col items-center justify-center rounded-md">
               <div className="text-xl bangers animate-pulse phonk-gradient">RIZZING...</div>
-              <p className="text-[8px] font-black text-zinc-600 mt-2">PRE-LOADING GEMS</p>
+              <p className="text-[8px] font-black text-zinc-600 mt-2">SMOOTH VIBES INBOUND</p>
             </div>
           )}
 
@@ -484,7 +482,7 @@ const App: React.FC = () => {
             <div className="w-full flex flex-col gap-1.5 flex-1 overflow-y-auto pr-1 custom-scrollbar">
               <div className="flex justify-between items-center gap-1.5 shrink-0 border-l-2 border-fuchsia-600 pl-2">
                 <div className="text-[9px] md:text-sm font-black tracking-tight text-white leading-tight truncate">"{gameState.rawSentence}"</div>
-                <div className="hidden sm:block text-[6px] font-black uppercase text-zinc-600">BUFF: {gameState.sentencePool.length}</div>
+                <div className="hidden sm:block text-[6px] font-black uppercase text-zinc-600">SMOOTH GAINS</div>
               </div>
               <div className="flex-1">
                 {renderStageContent()}

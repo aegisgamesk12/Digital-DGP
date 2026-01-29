@@ -27,7 +27,7 @@ export interface DGPState {
 
 export type PartOfSpeech = 
   | 'Noun' | 'Verb' | 'Pronoun' | 'Adjective' | 'Adverb' 
-  | 'Preposition' | 'Conjunction' | 'Interjection';
+  | 'Preposition' | 'Conjunction' | 'Interjection' | 'Verbal';
 
 export interface FridaySlot {
   id: string;

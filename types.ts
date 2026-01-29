@@ -7,6 +7,12 @@ export enum Stage {
   FRIDAY = 'Friday'
 }
 
+export enum Difficulty {
+  EASY = 'Easy',
+  MEDIUM = 'Medium',
+  HARD = 'Hard'
+}
+
 export interface DGPState {
   rawSentence: string;
   currentStage: Stage;
@@ -15,19 +21,17 @@ export interface DGPState {
   feedback: string;
   isLoading: boolean;
   musicEnabled: boolean;
+  difficulty: Difficulty;
+  sentencePool: string[];
 }
 
 export type PartOfSpeech = 
-  | 'Noun' | 'Verb' | 'Adjective' | 'Adverb' | 'Pronoun' 
-  | 'Preposition' | 'Conjunction' | 'Interjection' | 'Article';
+  | 'Noun' | 'Verb' | 'Pronoun' | 'Adjective' | 'Adverb' 
+  | 'Preposition' | 'Conjunction' | 'Interjection';
 
 export interface FridaySlot {
   id: string;
   type: 'subject' | 'verb' | 'object' | 'modifier';
   wordIdx: number | null;
-  rotation: 0 | 45; // 0 for straight, 45 for slanted
-}
-
-export interface FridayData {
-  slots: FridaySlot[];
+  rotation: 0 | 45; 
 }

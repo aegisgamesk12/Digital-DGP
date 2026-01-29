@@ -1,13 +1,21 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { Stage, DGPState, PartOfSpeech, FridaySlot } from './types';
-import { generateNewSentence, gradeStage, generatePhonkHype } from './services/geminiService';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Stage, Difficulty, DGPState, PartOfSpeech, FridaySlot } from './types';
+import { generateSentenceBatch, gradeStage, generatePhonkHype } from './services/geminiService';
 import { AudioPlayer } from './components/AudioPlayer';
 
 const POS_LIST: PartOfSpeech[] = [
-  'Noun', 'Verb', 'Adjective', 'Adverb', 'Pronoun', 
-  'Preposition', 'Conjunction', 'Interjection', 'Article'
+  'Noun', 'Verb', 'Pronoun', 'Adjective', 'Adverb', 
+  'Preposition', 'Conjunction', 'Interjection'
 ];
+
+const SUBTYPES: Record<string, string[]> = {
+  'Noun': ['Subject', 'Direct Object', 'Indirect Object', 'Object of Preposition', 'Appositive', 'Predicate Nominative', 'Direct Address'],
+  'Verb': ['Action (Transitive)', 'Action (Intransitive)', 'Linking', 'Helping'],
+  'Pronoun': ['Personal (Nominative)', 'Personal (Objective)', 'Personal (Possessive)', 'Relative', 'Demonstrative', 'Indefinite', 'Reflexive'],
+  'Adjective': ['Common', 'Proper', 'Article'],
+  'Conjunction': ['Coordinating', 'Subordinating', 'Correlative']
+};
 
 const STAGE_ORDER = [Stage.MONDAY, Stage.TUESDAY, Stage.WEDNESDAY, Stage.THURSDAY, Stage.FRIDAY];
 
@@ -17,7 +25,7 @@ const App: React.FC = () => {
     currentStage: Stage.MONDAY,
     completedStages: [],
     history: {
-      [Stage.MONDAY]: { tags: {} },
+      [Stage.MONDAY]: { tags: {} }, 
       [Stage.TUESDAY]: { subjectIndices: [], verbIndices: [], completeSubjectIndices: [], completePredicateIndices: [] },
       [Stage.WEDNESDAY]: { clauseCount: 1, sentenceType: 'Simple', sentencePurpose: 'Declarative' },
       [Stage.THURSDAY]: { correctedSentence: '' },
@@ -29,43 +37,138 @@ const App: React.FC = () => {
         { id: 'mod2', type: 'modifier', wordIdx: null, rotation: 45 }
       ]}
     },
-    feedback: "Digital DGP. Grind mode: ON.",
+    feedback: "Digital DGP. Aura: Peak.",
     isLoading: true,
-    musicEnabled: true
+    musicEnabled: true,
+    difficulty: Difficulty.EASY,
+    sentencePool: []
   });
 
   const [hypeAudio, setHypeAudio] = useState<string | undefined>();
   const [selectedWordIdx, setSelectedWordIdx] = useState<number | null>(null);
+  const isFetchingBuffer = useRef(false);
 
-  const initGame = useCallback(async () => {
-    setGameState(prev => ({ ...prev, isLoading: true }));
+  const resetStageHistory = useCallback(() => ({
+    [Stage.MONDAY]: { tags: {} },
+    [Stage.TUESDAY]: { subjectIndices: [], verbIndices: [], completeSubjectIndices: [], completePredicateIndices: [] },
+    [Stage.WEDNESDAY]: { clauseCount: 1, sentenceType: 'Simple', sentencePurpose: 'Declarative' },
+    [Stage.THURSDAY]: { correctedSentence: '' },
+    [Stage.FRIDAY]: { slots: [
+      { id: 'subj', type: 'subject', wordIdx: null, rotation: 0 },
+      { id: 'verb', type: 'verb', wordIdx: null, rotation: 0 },
+      { id: 'obj', type: 'object', wordIdx: null, rotation: 0 },
+      { id: 'mod1', type: 'modifier', wordIdx: null, rotation: 45 },
+      { id: 'mod2', type: 'modifier', wordIdx: null, rotation: 45 }
+    ]}
+  }), []);
+
+  const fillSentencePool = useCallback(async (difficulty: Difficulty, replaceCurrent = false) => {
+    if (isFetchingBuffer.current) return;
+    isFetchingBuffer.current = true;
     try {
-      const sentence = await generateNewSentence();
-      setGameState(prev => ({ ...prev, rawSentence: sentence, isLoading: false }));
-      const audio = await generatePhonkHype(Stage.MONDAY);
-      setHypeAudio(audio);
+      const batch = await generateSentenceBatch(difficulty, 5);
+      setGameState(prev => {
+        const newPool = [...prev.sentencePool, ...batch];
+        let nextSentence = prev.rawSentence;
+        let nextIsLoading = prev.isLoading;
+        
+        if (replaceCurrent || !prev.rawSentence) {
+          nextSentence = newPool.shift() || '';
+          nextIsLoading = false;
+        }
+
+        return {
+          ...prev,
+          sentencePool: newPool,
+          rawSentence: nextSentence,
+          isLoading: nextIsLoading
+        };
+      });
     } catch (e) {
-      setGameState(prev => ({ ...prev, isLoading: false, feedback: "Aura check failed. Check your API key." }));
+      console.error("Pool fetch failed", e);
+    } finally {
+      isFetchingBuffer.current = false;
     }
   }, []);
 
   useEffect(() => {
-    initGame();
-  }, [initGame]);
+    fillSentencePool(gameState.difficulty, true);
+    generatePhonkHype(Stage.MONDAY).then(setHypeAudio);
+  }, []);
+
+  const changeDifficulty = (d: Difficulty) => {
+    setGameState(prev => ({ 
+      ...prev, 
+      difficulty: d, 
+      isLoading: true, 
+      sentencePool: [], 
+      rawSentence: '',
+      currentStage: Stage.MONDAY,
+      completedStages: [],
+      history: resetStageHistory()
+    }));
+    fillSentencePool(d, true);
+  };
+
+  const nextSentenceFromPool = () => {
+    setGameState(prev => {
+      const pool = [...prev.sentencePool];
+      const next = pool.shift() || '';
+      
+      // If pool getting low, trigger a fetch (side effect handled via effect or just call here)
+      if (pool.length < 2) {
+        setTimeout(() => fillSentencePool(prev.difficulty), 100);
+      }
+
+      return {
+        ...prev,
+        rawSentence: next,
+        sentencePool: pool,
+        currentStage: Stage.MONDAY,
+        completedStages: [],
+        history: resetStageHistory()
+      };
+    });
+  };
 
   const toggleMusic = () => setGameState(prev => ({ ...prev, musicEnabled: !prev.musicEnabled }));
 
   const handleMondayTag = (wordIdx: number, pos: PartOfSpeech) => {
-    setGameState(prev => ({
-      ...prev,
-      history: {
-        ...prev.history,
-        [Stage.MONDAY]: {
-          ...prev.history[Stage.MONDAY],
-          tags: { ...prev.history[Stage.MONDAY].tags, [wordIdx]: pos }
+    setGameState(prev => {
+      const current = prev.history[Stage.MONDAY].tags[wordIdx] || {};
+      return {
+        ...prev,
+        history: {
+          ...prev.history,
+          [Stage.MONDAY]: {
+            ...prev.history[Stage.MONDAY],
+            tags: { 
+              ...prev.history[Stage.MONDAY].tags, 
+              [wordIdx]: { pos, subType: undefined } 
+            }
+          }
         }
-      }
-    }));
+      };
+    });
+  };
+
+  const handleMondaySubtype = (wordIdx: number, subType: string) => {
+    setGameState(prev => {
+      const current = prev.history[Stage.MONDAY].tags[wordIdx] || {};
+      return {
+        ...prev,
+        history: {
+          ...prev.history,
+          [Stage.MONDAY]: {
+            ...prev.history[Stage.MONDAY],
+            tags: { 
+              ...prev.history[Stage.MONDAY].tags, 
+              [wordIdx]: { ...current, subType } 
+            }
+          }
+        }
+      };
+    });
   };
 
   const handleTuesdayClick = (wordIdx: number, mode: 'subj' | 'verb' | 'compSubj' | 'compPred') => {
@@ -106,7 +209,7 @@ const App: React.FC = () => {
   };
 
   const submitStage = async () => {
-    setGameState(prev => ({ ...prev, isLoading: true, feedback: "CHECKING..." }));
+    setGameState(prev => ({ ...prev, isLoading: true, feedback: "VALIDATING..." }));
     try {
       const result = await gradeStage(gameState.currentStage, gameState.rawSentence, gameState.history[gameState.currentStage]);
       
@@ -114,23 +217,29 @@ const App: React.FC = () => {
         const currentIndex = STAGE_ORDER.indexOf(gameState.currentStage);
         const nextStage = STAGE_ORDER[currentIndex + 1];
         
-        setGameState(prev => ({
-          ...prev,
-          isLoading: false,
-          feedback: result.feedback,
-          completedStages: [...prev.completedStages, prev.currentStage],
-          currentStage: nextStage || prev.currentStage
-        }));
+        if (gameState.currentStage === Stage.FRIDAY) {
+          // Finished the whole week!
+          setGameState(prev => ({ ...prev, isLoading: false, feedback: result.feedback }));
+          setTimeout(() => nextSentenceFromPool(), 1500);
+        } else {
+          setGameState(prev => ({
+            ...prev,
+            isLoading: false,
+            feedback: result.feedback,
+            completedStages: [...prev.completedStages, prev.currentStage],
+            currentStage: nextStage || prev.currentStage
+          }));
 
-        if (nextStage) {
-          const audio = await generatePhonkHype(nextStage);
-          setHypeAudio(audio);
+          if (nextStage) {
+            const audio = await generatePhonkHype(nextStage);
+            setHypeAudio(audio);
+          }
         }
       } else {
         setGameState(prev => ({ ...prev, isLoading: false, feedback: result.feedback }));
       }
     } catch (e) {
-      setGameState(prev => ({ ...prev, isLoading: false, feedback: "Error. Connection lost." }));
+      setGameState(prev => ({ ...prev, isLoading: false, feedback: "Sigma Error." }));
     }
   };
 
@@ -140,31 +249,47 @@ const App: React.FC = () => {
     switch (gameState.currentStage) {
       case Stage.MONDAY:
         return (
-          <div className="flex flex-wrap gap-2 justify-center py-2">
-            {words.map((word, idx) => (
-              <div key={idx} className="flex flex-col items-center gap-1 p-2 bg-zinc-900 border border-zinc-800 rounded-lg w-32 md:w-36 transition-all hover:border-cyan-500 shadow-sm group">
-                <span className="text-xs md:text-sm font-black uppercase tracking-wider text-white group-hover:text-cyan-400 truncate w-full text-center">{word}</span>
-                <select 
-                  className="w-full bg-black text-[10px] text-cyan-400 p-1.5 rounded-md border border-zinc-700 outline-none cursor-pointer hover:bg-zinc-800 font-bold"
-                  value={gameState.history[Stage.MONDAY].tags[idx] || ''}
-                  onChange={(e) => handleMondayTag(idx, e.target.value as PartOfSpeech)}
-                >
-                  <option value="">POS</option>
-                  {POS_LIST.map(pos => <option key={pos} value={pos}>{pos}</option>)}
-                </select>
-              </div>
-            ))}
+          <div className="flex flex-wrap gap-1 justify-center py-1">
+            {words.map((word, idx) => {
+              const currentTag = gameState.history[Stage.MONDAY].tags[idx] || {};
+              const pos = currentTag.pos;
+              const subOptions = pos ? SUBTYPES[pos] : null;
+
+              return (
+                <div key={idx} className="flex flex-col items-center gap-1 p-1 bg-zinc-900 border border-zinc-800 rounded-md w-[85px] md:w-28 transition-all hover:border-cyan-500 shadow-sm group">
+                  <span className="text-[9px] md:text-xs font-black uppercase tracking-tight text-white group-hover:text-cyan-400 truncate w-full text-center">{word}</span>
+                  <select 
+                    className="w-full bg-black text-[8px] md:text-[9px] text-cyan-400 p-0.5 rounded-sm border border-zinc-700 outline-none cursor-pointer hover:bg-zinc-800 font-bold"
+                    value={pos || ''}
+                    onChange={(e) => handleMondayTag(idx, e.target.value as PartOfSpeech)}
+                  >
+                    <option value="">POS</option>
+                    {POS_LIST.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  {subOptions && (
+                    <select 
+                      className="w-full bg-zinc-950 text-[7px] md:text-[8px] text-fuchsia-400 p-0.5 rounded-sm border border-zinc-800 outline-none cursor-pointer hover:bg-zinc-900 font-bold mt-0.5"
+                      value={currentTag.subType || ''}
+                      onChange={(e) => handleMondaySubtype(idx, e.target.value)}
+                    >
+                      <option value="">Type</option>
+                      {subOptions.map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  )}
+                </div>
+              );
+            })}
           </div>
         );
 
       case Stage.TUESDAY:
         return (
-          <div className="flex flex-col gap-3 items-center py-2">
-            <div className="flex flex-wrap gap-2 justify-center max-w-4xl w-full">
+          <div className="flex flex-col gap-1 items-center py-1">
+            <div className="flex flex-wrap gap-1 justify-center max-w-2xl w-full">
               {words.map((word, idx) => (
-                <div key={idx} className="p-2 bg-zinc-900/80 rounded-xl border border-zinc-800 flex flex-col items-center gap-2 min-w-[100px] md:min-w-[120px]">
-                  <span className="text-sm md:text-lg font-black uppercase text-white tracking-tighter text-center">{word}</span>
-                  <div className="grid grid-cols-2 gap-1 w-full">
+                <div key={idx} className="p-1 bg-zinc-900/80 rounded-md border border-zinc-800 flex flex-col items-center gap-1 min-w-[70px] md:min-w-[90px]">
+                  <span className="text-[9px] md:text-xs font-black uppercase text-white tracking-tighter text-center">{word}</span>
+                  <div className="grid grid-cols-2 gap-0.5 w-full">
                     {[ 
                       { k: 'subj', l: 'S', c: 'bg-cyan-500', idxK: 'subjectIndices' },
                       { k: 'verb', l: 'V', c: 'bg-fuchsia-500', idxK: 'verbIndices' },
@@ -174,7 +299,7 @@ const App: React.FC = () => {
                       <button 
                         key={btn.k}
                         onClick={() => handleTuesdayClick(idx, btn.k as any)} 
-                        className={`py-1 rounded-md flex items-center justify-center text-[8px] md:text-[9px] font-black transition-all ${gameState.history[Stage.TUESDAY][btn.idxK].includes(idx) ? `${btn.c} text-black scale-105` : 'bg-black text-zinc-600 border border-zinc-800 hover:border-zinc-500'}`}
+                        className={`py-0.5 rounded-[2px] flex items-center justify-center text-[7px] font-black transition-all ${gameState.history[Stage.TUESDAY][btn.idxK].includes(idx) ? `${btn.c} text-black` : 'bg-black text-zinc-600 border border-zinc-800'}`}
                       >
                         {btn.l}
                       </button>
@@ -188,12 +313,12 @@ const App: React.FC = () => {
 
       case Stage.WEDNESDAY:
         return (
-          <div className="flex flex-col gap-4 items-center py-4 w-full max-w-md mx-auto">
+          <div className="flex flex-col gap-1 items-center py-1 w-full max-w-xs mx-auto">
              <div className="w-full">
-              <label className="block text-[10px] uppercase text-cyan-500 mb-1 font-black tracking-widest text-center">Clause Count</label>
+              <label className="block text-[7px] uppercase text-cyan-500 mb-0.5 font-black tracking-widest text-center">Clauses</label>
               <input 
                 type="number" 
-                className="w-full bg-zinc-900 border-2 border-zinc-800 p-2 rounded-lg text-2xl font-black text-center text-white focus:border-cyan-500 outline-none transition-all"
+                className="w-full bg-zinc-900 border border-zinc-800 p-1 rounded-md text-lg font-black text-center text-white focus:border-cyan-500 outline-none"
                 value={gameState.history[Stage.WEDNESDAY].clauseCount}
                 onChange={(e) => setGameState(prev => ({
                   ...prev,
@@ -202,16 +327,16 @@ const App: React.FC = () => {
               />
             </div>
             <div className="w-full">
-              <label className="block text-[10px] uppercase text-fuchsia-500 mb-1 font-black tracking-widest text-center">Sentence Type</label>
-              <div className="grid grid-cols-2 gap-2">
-                {['Simple', 'Compound', 'Complex', 'Compound-Complex'].map(type => (
+              <label className="block text-[7px] uppercase text-fuchsia-500 mb-0.5 font-black tracking-widest text-center">Type</label>
+              <div className="grid grid-cols-2 gap-1">
+                {['Simple', 'Compound', 'Complex', 'Comp-Complex'].map(type => (
                   <button
                     key={type}
                     onClick={() => setGameState(prev => ({
                       ...prev,
                       history: { ...prev.history, [Stage.WEDNESDAY]: { ...prev.history[Stage.WEDNESDAY], sentenceType: type } }
                     }))}
-                    className={`p-2 rounded-lg border font-black text-xs transition-all ${gameState.history[Stage.WEDNESDAY].sentenceType === type ? 'bg-fuchsia-500 border-white text-white' : 'bg-zinc-900 border-zinc-800 text-zinc-500 hover:border-fuchsia-500/50'}`}
+                    className={`p-1 rounded-md border border-zinc-800 font-black text-[8px] transition-all ${gameState.history[Stage.WEDNESDAY].sentenceType === type ? 'bg-fuchsia-500 border-white text-white' : 'bg-zinc-900 text-zinc-500'}`}
                   >
                     {type}
                   </button>
@@ -223,11 +348,10 @@ const App: React.FC = () => {
 
       case Stage.THURSDAY:
         return (
-          <div className="flex flex-col gap-2 items-center py-2 w-full max-w-2xl mx-auto">
-            <div className="text-[10px] uppercase text-lime-400 font-black tracking-widest bg-lime-400/10 px-3 py-1 rounded-full border border-lime-400/20">FIX ERRORS</div>
+          <div className="flex flex-col gap-1 items-center py-1 w-full max-w-lg mx-auto">
             <textarea 
-              className="w-full h-32 md:h-40 bg-zinc-950 border-4 border-zinc-900 p-4 rounded-xl text-lg md:text-2xl font-black tracking-tight text-center resize-none outline-none focus:border-lime-500 transition-all text-lime-400 shadow-sm placeholder-zinc-800"
-              placeholder="FIXED VERSION..."
+              className="w-full h-16 md:h-24 bg-zinc-950 border border-zinc-900 p-2 rounded-md text-xs md:text-lg font-black text-center resize-none outline-none focus:border-lime-500 text-lime-400"
+              placeholder="FIX IT..."
               value={gameState.history[Stage.THURSDAY].correctedSentence}
               onChange={(e) => setGameState(prev => ({
                 ...prev,
@@ -246,20 +370,15 @@ const App: React.FC = () => {
         };
 
         return (
-          <div className="flex flex-col gap-4 items-center py-2 w-full">
-            <div className="text-center">
-              <h3 className="text-xl md:text-3xl bangers tracking-tighter text-cyan-400">TETRIS DIAGRAM</h3>
-              <p className="text-[8px] md:text-[10px] text-zinc-500 uppercase font-black tracking-widest mt-0.5">Pick word, drop in, rotate mods.</p>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5 justify-center max-w-2xl bg-zinc-900/30 p-2 rounded-xl border border-zinc-800 w-full">
+          <div className="flex flex-col gap-2 items-center py-1 w-full">
+            <div className="flex flex-wrap gap-1 justify-center max-w-lg bg-zinc-900/30 p-1 rounded-md border border-zinc-800 w-full">
               {words.map((word, idx) => {
                 const isUsed = gameState.history[Stage.FRIDAY].slots.some((s: FridaySlot) => s.wordIdx === idx);
                 return (
                   <button 
                     key={idx}
                     onClick={() => setSelectedWordIdx(idx)}
-                    className={`px-3 py-1.5 rounded-md font-black uppercase text-[10px] md:text-xs border transition-all ${selectedWordIdx === idx ? 'border-white bg-white text-black' : isUsed ? 'border-zinc-800 text-zinc-700 bg-black opacity-20 pointer-events-none' : 'border-cyan-500 bg-black text-cyan-400 hover:bg-cyan-500 hover:text-white'}`}
+                    className={`px-1.5 py-0.5 rounded-sm font-black uppercase text-[8px] border transition-all ${selectedWordIdx === idx ? 'border-white bg-white text-black' : isUsed ? 'border-zinc-800 text-zinc-700 bg-black opacity-20 pointer-events-none' : 'border-cyan-500 bg-black text-cyan-400'}`}
                   >
                     {word}
                   </button>
@@ -267,11 +386,9 @@ const App: React.FC = () => {
               })}
             </div>
 
-            <div className="relative w-full max-w-3xl aspect-[21/9] bg-zinc-950 border-2 border-zinc-900 rounded-2xl overflow-hidden flex flex-col items-center justify-center p-2 shadow-lg">
-              <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: 'linear-gradient(#fff 1px, transparent 1px), linear-gradient(90deg, #fff 1px, transparent 1px)', backgroundSize: '30px 30px' }}></div>
-              <div className="absolute top-[50%] left-0 w-full h-[1px] bg-zinc-700"></div>
-              
-              <div className="relative z-10 flex flex-wrap justify-center items-center gap-2 md:gap-4 w-full h-full">
+            <div className="relative w-full max-w-xl aspect-[21/9] bg-zinc-950 border border-zinc-900 rounded-lg overflow-hidden flex items-center justify-center p-0.5 shadow-sm">
+              <div className="absolute top-[50%] left-0 w-full h-[1px] bg-zinc-800"></div>
+              <div className="relative z-10 flex flex-wrap justify-center items-center gap-1 md:gap-2">
                 {gameState.history[Stage.FRIDAY].slots.map((slot: FridaySlot) => (
                   <div 
                     key={slot.id}
@@ -281,116 +398,102 @@ const App: React.FC = () => {
                     }}
                     style={{ 
                       transform: `rotate(${slot.rotation}deg)`,
-                      transition: 'all 0.4s ease-out'
+                      transition: 'all 0.3s ease'
                     }}
-                    className={`relative w-20 h-8 sm:w-28 sm:h-12 md:w-36 md:h-16 flex items-center justify-center border-2 border-solid transition-all cursor-pointer rounded-lg group ${slot.wordIdx !== null ? `${slotColors[slot.type]} shadow-md` : 'border-zinc-800 hover:border-zinc-600 bg-black/40'}`}
+                    className={`relative w-14 h-5 sm:w-16 sm:h-7 md:w-24 md:h-10 flex items-center justify-center border border-solid transition-all cursor-pointer rounded-sm group ${slot.wordIdx !== null ? `${slotColors[slot.type]} shadow-sm` : 'border-zinc-800 bg-black/40'}`}
                   >
-                    <span className="text-[6px] md:text-[8px] absolute -top-3 left-0 uppercase font-black text-zinc-600 tracking-wider opacity-60">
+                    <span className="text-[5px] absolute -top-1.5 left-0 uppercase font-black text-zinc-600 truncate w-full">
                       {slot.type}
                     </span>
                     {slot.wordIdx !== null ? (
-                      <span className="text-[8px] sm:text-[10px] md:text-lg font-black uppercase text-white tracking-widest truncate px-1">
+                      <span className="text-[6px] md:text-[9px] font-black uppercase text-white truncate px-0.5">
                         {words[slot.wordIdx]}
                       </span>
                     ) : (
-                      <span className="text-zinc-800 font-black text-sm md:text-xl">+</span>
+                      <span className="text-zinc-800 font-black text-[9px]">+</span>
                     )}
-                    {slot.type === 'subject' && <div className="absolute -right-[1px] top-0 h-full w-[2px] bg-white/40"></div>}
                   </div>
                 ))}
               </div>
             </div>
-            
-            <button 
-              onClick={() => setGameState(prev => ({...prev, history: {...prev.history, [Stage.FRIDAY]: {...prev.history[Stage.FRIDAY], slots: prev.history[Stage.FRIDAY].slots.map(s => ({...s, wordIdx: null}))}}}))}
-              className="text-[8px] md:text-[10px] font-black tracking-widest text-zinc-600 hover:text-white transition-all uppercase underline underline-offset-4"
-            >
-              Reset Diagram
-            </button>
+            <button onClick={() => setGameState(prev => ({...prev, history: {...prev.history, [Stage.FRIDAY]: {...prev.history[Stage.FRIDAY], slots: prev.history[Stage.FRIDAY].slots.map(s => ({...s, wordIdx: null}))}}}))} className="text-[7px] font-black text-zinc-600">Reset</button>
           </div>
         );
 
       default:
-        return <div className="text-2xl bangers text-center py-6 text-cyan-400">SIGMA STATUS ACHIEVED</div>;
+        return <div className="text-xl bangers text-center py-2 text-cyan-400">SIGMA STATUS</div>;
     }
   };
 
   return (
-    <div className="min-h-screen bg-black text-white selection:bg-cyan-500 selection:text-black overflow-x-hidden flex flex-col">
+    <div className="h-screen bg-black text-white selection:bg-cyan-500 selection:text-black overflow-hidden flex flex-col">
       <AudioPlayer base64Audio={hypeAudio} enabled={gameState.musicEnabled} />
       
-      {/* Phonk Control Center */}
-      <div className="fixed top-2 left-2 z-[100] flex items-center gap-2 bg-zinc-950/80 p-1 pr-3 rounded-full border border-zinc-800 backdrop-blur-md">
+      {/* Phonk Control & Difficulty */}
+      <div className="fixed top-1 left-1 z-[100] flex items-center gap-2 bg-zinc-950/80 p-0.5 pr-2 rounded-full border border-zinc-800 backdrop-blur-md">
         <button 
           onClick={toggleMusic}
-          className={`w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center border transition-all transform active:scale-90 ${gameState.musicEnabled ? 'bg-white border-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.6)]' : 'bg-zinc-900 border-zinc-800 opacity-50'}`}
+          className={`w-5 h-5 rounded-full flex items-center justify-center border transition-all ${gameState.musicEnabled ? 'bg-white border-cyan-500' : 'bg-zinc-900 border-zinc-800 opacity-50'}`}
         >
-          <span className="text-xs md:text-lg">{gameState.musicEnabled ? '🔊' : '🔇'}</span>
+          <span className="text-[8px]">{gameState.musicEnabled ? '🔊' : '🔇'}</span>
         </button>
-        <div className="flex flex-col">
-          <span className="text-[7px] font-black tracking-tight uppercase text-zinc-600 leading-none">PHONK</span>
-          <span className={`text-[9px] font-black uppercase tracking-widest ${gameState.musicEnabled ? 'text-cyan-400' : 'text-zinc-700'}`}>
-            {gameState.musicEnabled ? 'ON' : 'OFF'}
-          </span>
+        
+        <div className="flex gap-1 border-l border-zinc-800 pl-1.5">
+          {[Difficulty.EASY, Difficulty.MEDIUM, Difficulty.HARD].map(d => (
+            <button
+              key={d}
+              onClick={() => changeDifficulty(d)}
+              className={`text-[6px] md:text-[8px] font-black px-1.5 py-0.5 rounded-full transition-all ${gameState.difficulty === d ? 'bg-cyan-500 text-black' : 'text-zinc-500 hover:text-white'}`}
+            >
+              {d}
+            </button>
+          ))}
         </div>
       </div>
 
-      <header className="p-2 md:p-4 flex flex-col items-center bg-zinc-950/40 backdrop-blur-md border-b border-zinc-900 shrink-0">
-        <h1 className="text-xl sm:text-3xl md:text-5xl lg:text-6xl bangers tracking-tighter phonk-gradient leading-none text-center select-none">DIGITAL DGP</h1>
-        <div className="flex items-center gap-2 mt-0.5">
-          <div className="h-[1px] w-4 md:w-12 bg-gradient-to-r from-transparent to-fuchsia-600"></div>
-          <p className="text-zinc-500 uppercase tracking-widest text-[6px] md:text-[10px] font-black whitespace-nowrap">Gen Alpha Grammar Grind</p>
-          <div className="h-[1px] w-4 md:w-12 bg-gradient-to-l from-transparent to-cyan-500"></div>
-        </div>
+      <header className="p-1 flex flex-col items-center bg-zinc-950/40 backdrop-blur-md border-b border-zinc-900 shrink-0">
+        <h1 className="text-lg md:text-2xl bangers tracking-tighter phonk-gradient leading-none select-none">DIGITAL DGP</h1>
+        <p className="text-zinc-500 uppercase tracking-widest text-[6px] font-black">Gen Alpha Grammar Grind</p>
       </header>
 
-      <main className="max-w-[1200px] w-full mx-auto p-2 md:p-4 flex-1 flex flex-col gap-2">
+      <main className="max-w-[900px] w-full mx-auto p-1 flex-1 flex flex-col gap-1 overflow-hidden">
         
-        {/* Progress Tracker */}
-        <div className="grid grid-cols-5 gap-1 md:gap-2 shrink-0">
+        {/* Progress */}
+        <div className="grid grid-cols-5 gap-0.5 shrink-0">
           {STAGE_ORDER.map((s) => {
             const isCompleted = gameState.completedStages.includes(s);
             const isCurrent = gameState.currentStage === s;
             return (
-              <div key={s} className={`p-1 md:p-2 border-b-2 transition-all relative rounded-md ${isCurrent ? 'border-cyan-500 bg-zinc-900/40' : isCompleted ? 'border-lime-500 text-lime-500' : 'border-zinc-900 text-zinc-800'}`}>
-                {isCurrent && <div className="absolute top-0 left-0 w-full h-[2px] bg-cyan-500"></div>}
-                <div className="text-[6px] md:text-[8px] uppercase font-black tracking-wider mb-0.5">{isCompleted ? '✓' : s[0]}</div>
-                <div className={`text-[8px] md:text-lg font-black italic uppercase truncate ${isCurrent ? 'text-white' : ''}`}>{s}</div>
+              <div key={s} className={`p-0.5 border-b transition-all relative rounded-sm ${isCurrent ? 'border-cyan-500 bg-zinc-900/40' : isCompleted ? 'border-lime-500 text-lime-500' : 'border-zinc-800 text-zinc-800'}`}>
+                {isCurrent && <div className="absolute top-0 left-0 w-full h-[1px] bg-cyan-500"></div>}
+                <div className={`text-[7px] md:text-[9px] font-black italic uppercase truncate ${isCurrent ? 'text-white' : ''}`}>{s}</div>
               </div>
             );
           })}
         </div>
 
-        <div className="relative flex-1 flex flex-col">
+        <div className="relative flex-1 flex flex-col overflow-hidden">
           {gameState.isLoading && (
-            <div className="absolute inset-0 bg-black/95 z-[60] flex flex-col items-center justify-center backdrop-blur-sm rounded-xl">
-              <div className="text-3xl md:text-6xl bangers tracking-widest animate-pulse phonk-gradient">RIZZING...</div>
-              <p className="text-zinc-700 font-black tracking-widest mt-2 uppercase text-[8px] md:text-xs text-center">Loading Gains</p>
+            <div className="absolute inset-0 bg-black/95 z-[60] flex flex-col items-center justify-center rounded-md">
+              <div className="text-xl bangers animate-pulse phonk-gradient">RIZZING...</div>
+              <p className="text-[8px] font-black text-zinc-600 mt-2">PRE-LOADING GEMS</p>
             </div>
           )}
 
-          <div className="glitch-border rounded-xl bg-zinc-950/60 p-3 md:p-6 flex flex-col justify-between flex-1 shadow-2xl backdrop-blur-sm overflow-hidden">
-            <div className="w-full flex flex-col gap-3 flex-1 overflow-y-auto pr-1 custom-scrollbar">
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2 shrink-0">
-                <div className="border-l-4 border-fuchsia-600 pl-3">
-                  <span className="text-[8px] font-black tracking-widest text-zinc-600 uppercase block">Logic Target</span>
-                  <div className="text-sm md:text-2xl font-black tracking-tight text-white leading-tight">"{gameState.rawSentence}"</div>
-                </div>
-                <div className="hidden lg:flex items-center gap-2 bg-zinc-900 px-2 py-1 rounded-lg border border-zinc-800">
-                  <div className="w-1.5 h-1.5 rounded-full bg-lime-500 animate-ping"></div>
-                  <span className="text-[8px] font-black uppercase text-zinc-400">Neural Link Stable</span>
-                </div>
+          <div className="glitch-border rounded-md bg-zinc-950/60 p-1.5 md:p-3 flex flex-col justify-between flex-1 shadow-lg backdrop-blur-sm overflow-hidden">
+            <div className="w-full flex flex-col gap-1.5 flex-1 overflow-y-auto pr-1 custom-scrollbar">
+              <div className="flex justify-between items-center gap-1.5 shrink-0 border-l-2 border-fuchsia-600 pl-2">
+                <div className="text-[9px] md:text-sm font-black tracking-tight text-white leading-tight truncate">"{gameState.rawSentence}"</div>
+                <div className="hidden sm:block text-[6px] font-black uppercase text-zinc-600">BUFF: {gameState.sentencePool.length}</div>
               </div>
-              
-              <div className="w-full">
+              <div className="flex-1">
                 {renderStageContent()}
               </div>
             </div>
 
-            <div className="flex flex-col lg:flex-row gap-3 items-center justify-between mt-4 pt-4 border-t border-zinc-900/60 shrink-0">
-              <div className="relative p-2 md:p-4 bg-black/60 rounded-xl border border-zinc-800 flex-1 w-full shadow-inner">
-                <div className="absolute -top-2 left-3 px-2 bg-zinc-900 text-[6px] md:text-[8px] font-black tracking-wider text-zinc-500 uppercase border border-zinc-800 rounded-full">System Feedback</div>
-                <div className="text-xs md:text-lg font-black italic text-white leading-tight text-center lg:text-left truncate">
+            <div className="flex gap-1.5 items-center justify-between mt-1.5 pt-1.5 border-t border-zinc-900/60 shrink-0">
+              <div className="relative p-1 bg-black/60 rounded-md border border-zinc-900 flex-1 min-w-0">
+                <div className="text-[6px] md:text-[9px] font-black italic text-zinc-400 leading-tight truncate px-1">
                   "{gameState.feedback}"
                 </div>
               </div>
@@ -398,33 +501,22 @@ const App: React.FC = () => {
               <button 
                 onClick={submitStage}
                 disabled={gameState.isLoading}
-                className="group relative w-full lg:w-auto px-6 md:px-12 py-3 md:py-6 bg-white text-black font-black text-lg md:text-3xl uppercase tracking-tighter hover:scale-105 active:scale-95 transition-all disabled:opacity-5 rounded-lg md:rounded-xl flex items-center justify-center gap-2 md:gap-4"
+                className="group relative px-3 py-1 bg-white text-black font-black text-[9px] md:text-xs uppercase tracking-tighter hover:scale-105 active:scale-95 transition-all disabled:opacity-5 rounded-sm flex items-center justify-center gap-1"
               >
-                <div className="absolute -inset-1 bg-gradient-to-r from-cyan-500 via-fuchsia-600 to-lime-500 blur-md opacity-20 group-hover:opacity-100 transition duration-700 rounded-lg"></div>
-                <span className="relative">SEND IT</span>
-                <span className="relative text-lg md:text-2xl transform group-hover:translate-x-1 transition-transform">➔</span>
+                <span>SEND</span>
+                <span className="text-[7px]">➔</span>
               </button>
             </div>
           </div>
         </div>
       </main>
 
-      <div className="fixed bottom-0 left-0 w-full h-1 bg-gradient-to-r from-fuchsia-600 via-cyan-500 to-lime-500 z-[100] shadow-[0_-2px_10px_rgba(6,182,212,0.4)]"></div>
+      <div className="h-0.5 bg-gradient-to-r from-fuchsia-600 via-cyan-500 to-lime-500 z-[100] shrink-0"></div>
       
       <style>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: #000;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #333;
-          border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #555;
-        }
+        .custom-scrollbar::-webkit-scrollbar { width: 2px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #000; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 5px; }
       `}</style>
     </div>
   );

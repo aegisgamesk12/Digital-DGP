@@ -1,18 +1,39 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Stage } from "../types";
+import { Stage, Difficulty } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-export const generateNewSentence = async () => {
+const gradePrompts = {
+  [Difficulty.EASY]: "7th-9th grade level complexity.",
+  [Difficulty.MEDIUM]: "10th-12th grade level complexity.",
+  [Difficulty.HARD]: "AP English/Freshman College level complexity."
+};
+
+export const generateSentenceBatch = async (difficulty: Difficulty, count: number = 4) => {
+  const prompt = `Generate a JSON array of exactly ${count} strings. 
+  Each string must be a sentence with NO capitalization and NO punctuation.
+  Difficulty Level: ${gradePrompts[difficulty]}
+  The batch must include a mix of sentence types: Simple, Compound, Complex, and Compound-Complex.
+  Each sentence should be 6-12 words long.`;
+
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
-    contents: "Generate a short, clear sentence (5-8 words) with no capitalization or punctuation. Make it interesting but standard for grammar analysis.",
+    contents: prompt,
     config: {
-      temperature: 1,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.ARRAY,
+        items: { type: Type.STRING }
+      }
     }
   });
-  return response.text.trim().toLowerCase();
+
+  try {
+    return JSON.parse(response.text);
+  } catch (e) {
+    return ["the cat sat on the mat", "the dog barked at the moon"];
+  }
 };
 
 export const gradeStage = async (stage: Stage, sentence: string, data: any) => {
@@ -23,7 +44,13 @@ export const gradeStage = async (stage: Stage, sentence: string, data: any) => {
     User Work: ${JSON.stringify(data)}
 
     Verify if the user's grammar analysis for this specific stage is 100% accurate. 
-    Monday: Parts of Speech for every word.
+    Monday: Parts of Speech for every word WITH sub-types. 
+    - Nouns must specify function (Subject, Direct Object, Indirect Object, Object of Preposition, Appositive, Predicate Nominative, Direct Address).
+    - Verbs must specify type (Action Transitive/Intransitive, Linking, Helping).
+    - Pronouns must specify type (Personal Nominative/Objective/Possessive, Relative, Demonstrative, Indefinite, Reflexive).
+    - Adjectives must specify type (Common, Proper, Article).
+    - Conjunctions must specify type (Coordinating, Subordinating, Correlative).
+    
     Tuesday: Subject/Verb/Complete Subject/Predicate indices.
     Wednesday: Clause counts and Sentence Type.
     Thursday: Capitalization/Punctuation/Grammar fixes.
@@ -41,7 +68,7 @@ export const gradeStage = async (stage: Stage, sentence: string, data: any) => {
         type: Type.OBJECT,
         properties: {
           isCorrect: { type: Type.BOOLEAN },
-          feedback: { type: Type.STRING, description: "Hype or helpful feedback in Gen Alpha slang. Use lots of 'skibidi', 'sigma', 'rizz', 'no cap', 'aura'." },
+          feedback: { type: Type.STRING, description: "Hype feedback in Gen Alpha slang (skibidi, rizz, sigma, etc)." },
           correctData: { type: Type.STRING }
         },
         required: ["isCorrect", "feedback"]
@@ -53,21 +80,10 @@ export const gradeStage = async (stage: Stage, sentence: string, data: any) => {
 };
 
 export const generatePhonkHype = async (stage: Stage) => {
-  // Creating a high-energy instrumental phonk track using onomatopoeia.
-  // We specify NO SPEAKING and only short vocal stabs.
   const prompt = `
-    Perform a 10-second HIGH-ENERGY INSTRUMENTAL GEN ALPHA ELECTRONIC / PHONK track for the stage: ${stage}. 
-    
-    IMPORTANT RULES:
-    1. NO LYRICS. NO SPEAKING. NO EXPLAINING.
-    2. ONLY USE INSTRUMENTAL SOUNDS: 'DOOM-KAH-DOOM-DOOM-KAH' (Drums), 'BZZZT-vwoo' (Synths), 'Tink-tink' (Phonk Cowbells).
-    3. YOU MAY INCLUDE SHORT FEMALE VOCAL STABS like "HEY!", "YEAH!", "GO!", or "WHAT!" rhythmically.
-    4. ACT AS A SYNTHESIZER AND DRUM MACHINE.
-    
-    Structure:
-    - 0-3s: Heavy distorted kick and phonk cowbell melody (e.g., 'Tink-tink-tonk, Tink-tink-tonk').
-    - 3-7s: Add sharp snare and rapid hi-hats with a female vocal stab 'GO!'.
-    - 7-10s: Glitchy electronic bass drop ('WUB-WUB-WUB-BRRR').
+    Perform a 10-second HIGH-ENERGY INSTRUMENTAL GEN ALPHA PHONK track for the stage: ${stage}. 
+    NO LYRICS. NO SPEAKING. ONLY SOUNDS: 'DOOM-KAH-DOOM', 'BZZZT', 'Tink-tink' (cowbells).
+    Include rhythmic female vocal stabs like "GO!" or "HEY!".
   `;
   
   const response = await ai.models.generateContent({
@@ -77,7 +93,7 @@ export const generatePhonkHype = async (stage: Stage) => {
       responseModalities: ['AUDIO' as any],
       speechConfig: {
         voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: 'Kore' } // Kore is often used for higher pitched or stab-like sounds
+          prebuiltVoiceConfig: { voiceName: 'Kore' }
         }
       }
     }

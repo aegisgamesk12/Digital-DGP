@@ -1,0 +1,7 @@
+{
+  "name": "Digital DGP - Gen Alpha Grammar Phonk",
+  "description": "An intense, high-energy 5-stage grammar game with Phonk-inspired audio, moving students through daily grammar practice from parts of speech to Reed-Kellogg diagrams.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

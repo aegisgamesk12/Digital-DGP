@@ -30,7 +30,8 @@ export const generateSentenceBatch = async (difficulty: Difficulty, count: numbe
   });
 
   try {
-    return JSON.parse(response.text);
+    const text = response.text.trim();
+    return JSON.parse(text);
   } catch (e) {
     return ["the cat sat on the mat", "the dog barked at the moon"];
   }
@@ -45,12 +46,12 @@ export const gradeStage = async (stage: Stage, sentence: string, data: any) => {
 
     Verify if the user's grammar analysis for this specific stage is 100% accurate. 
     Monday: Parts of Speech for every word WITH sub-types. 
-    - Nouns must specify function (Subject, Direct Object, Indirect Object, Object of Preposition, Appositive, Predicate Nominative, Direct Address).
-    - Verbs must specify type (Action Transitive/Intransitive, Linking, Helping).
-    - Verbals must specify type (Gerund, Participle, Infinitive).
-    - Pronouns must specify type (Personal Nominative/Objective/Possessive, Relative, Demonstrative, Indefinite, Reflexive).
-    - Adjectives must specify type (Common, Proper, Article).
-    - Conjunctions must specify type (Coordinating, Subordinating, Correlative).
+    - Nouns: Subject, Direct Object, Indirect Object, Object of Preposition, Appositive, Predicate Nominative, Direct Address.
+    - Verbs: Action Transitive, Action Intransitive, Linking, Helping.
+    - Verbals: Gerund, Participle, Infinitive. (CRITICAL: MUST MATCH THESE CATEGORIES)
+    - Pronouns: Personal Nominative, Personal Objective, Personal Possessive, Relative, Demonstrative, Indefinite, Reflexive.
+    - Adjectives: Common, Proper, Article.
+    - Conjunctions: Coordinating, Subordinating, Correlative.
     
     Tuesday: Subject/Verb/Complete Subject/Predicate indices.
     Wednesday: Clause counts and Sentence Type.
@@ -69,7 +70,7 @@ export const gradeStage = async (stage: Stage, sentence: string, data: any) => {
         type: Type.OBJECT,
         properties: {
           isCorrect: { type: Type.BOOLEAN },
-          feedback: { type: Type.STRING, description: "Hype feedback in Gen Alpha slang (skibidi, rizz, sigma, etc)." },
+          feedback: { type: Type.STRING, description: "Hype feedback in Gen Alpha slang. Be encouraging but direct." },
           correctData: { type: Type.STRING }
         },
         required: ["isCorrect", "feedback"]
@@ -82,14 +83,17 @@ export const gradeStage = async (stage: Stage, sentence: string, data: any) => {
 
 export const generateAudioTrack = async (stage: Stage) => {
   const prompt = `
-    Perform a brand new 10-second ULTRA-SMOOTH AMBIENT ELECTRONICA track for the stage: ${stage}. 
-    STRICTLY INSTRUMENTAL. NO LYRICS. 
-    Sound Palette:
-    - Warm, low-pass filtered synth pads (swelling 'huuuuuuuuu-waaaaaaah').
-    - Minimalist rhythmic clicks and rain-like hi-hats ('tih-tih-tih').
-    - A deep, mellow sub-bass pulse at 80bpm.
-    - Soft, crystalline melodic echoes.
-    Atmosphere: Sophisticated chill lounge, high-end cafe vibes, extremely relaxing and atmospheric.
+    Perform a 10-second NEO-80S SYNTHWAVE / RETROWAVE track for the stage: ${stage}. 
+    
+    IMPORTANT: DO NOT DESCRIBE THE MUSIC. DO NOT SPEAK. 
+    YOU ARE A SYNTHESIZER AND DRUM MACHINE. PERFORM THE SOUNDS ONOMATOPOEICALLY.
+
+    Performance Instructions:
+    - 0-3s: Driving 80s kick and gated reverb snare: "BOOM... CHACK! BOOM-BOOM... CHACK!"
+    - 3-7s: Arpeggiated neon synth melody: "Doot-doot-da-doot-doot-da-doot-doot, vwaaaaaah-vwaaaaah!"
+    - 7-10s: Heavy analog bassline and a laser zap: "WUB-WUB-WUB-WUB... PEW PEW!"
+    
+    Use a rhythmic, robotic, yet musical delivery of these sounds.
   `;
   
   const response = await ai.models.generateContent({
@@ -99,7 +103,7 @@ export const generateAudioTrack = async (stage: Stage) => {
       responseModalities: ['AUDIO' as any],
       speechConfig: {
         voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: 'Zephyr' }
+          prebuiltVoiceConfig: { voiceName: 'Puck' }
         }
       }
     }

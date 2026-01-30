@@ -48,7 +48,7 @@ export const gradeStage = async (stage: Stage, sentence: string, data: any) => {
     Monday: Parts of Speech for every word WITH sub-types. 
     - Nouns: Subject, Direct Object, Indirect Object, Object of Preposition, Appositive, Predicate Nominative, Direct Address.
     - Verbs: Action Transitive, Action Intransitive, Linking, Helping.
-    - Verbals: Gerund, Participle, Infinitive. (CRITICAL: MUST MATCH THESE CATEGORIES)
+    - Verbals: Gerund, Participle, Infinitive.
     - Pronouns: Personal Nominative, Personal Objective, Personal Possessive, Relative, Demonstrative, Indefinite, Reflexive.
     - Adjectives: Common, Proper, Article.
     - Conjunctions: Coordinating, Subordinating, Correlative.
@@ -81,19 +81,21 @@ export const gradeStage = async (stage: Stage, sentence: string, data: any) => {
   return JSON.parse(response.text);
 };
 
+/**
+ * Generates an instrumental neo-80s background track.
+ * Uses strict onomatopoeia to simulate instruments without speaking words.
+ */
 export const generateAudioTrack = async (stage: Stage) => {
   const prompt = `
-    Perform a 10-second NEO-80S SYNTHWAVE / RETROWAVE track for the stage: ${stage}. 
+    Perform a 10-second INSTRUMENTAL NEO-80S SYNTHWAVE sequence. 
+    STRICTLY NO WORDS. NO DESCRIPTIONS. NO VOICE.
     
-    IMPORTANT: DO NOT DESCRIBE THE MUSIC. DO NOT SPEAK. 
-    YOU ARE A SYNTHESIZER AND DRUM MACHINE. PERFORM THE SOUNDS ONOMATOPOEICALLY.
-
-    Performance Instructions:
-    - 0-3s: Driving 80s kick and gated reverb snare: "BOOM... CHACK! BOOM-BOOM... CHACK!"
-    - 3-7s: Arpeggiated neon synth melody: "Doot-doot-da-doot-doot-da-doot-doot, vwaaaaaah-vwaaaaah!"
-    - 7-10s: Heavy analog bassline and a laser zap: "WUB-WUB-WUB-WUB... PEW PEW!"
+    YOU ARE AN ANALOG SYNTHESIZER.
+    ONLY say the following abstract sounds rhythmically:
+    "Dun... tish... dun-dun-tish... bzzzzzzzz-wup... vwaaaaaaaaah... pip-pip-pip-pop... dun... tish..."
     
-    Use a rhythmic, robotic, yet musical delivery of these sounds.
+    Make it sound like a looping drum machine and a smooth synth lead. 
+    DO NOT say "Here is the music". DO NOT say "Synthwave".
   `;
   
   const response = await ai.models.generateContent({
@@ -103,7 +105,33 @@ export const generateAudioTrack = async (stage: Stage) => {
       responseModalities: ['AUDIO' as any],
       speechConfig: {
         voiceConfig: {
-          prebuiltVoiceConfig: { voiceName: 'Puck' }
+          prebuiltVoiceConfig: { voiceName: 'Puck' } // Puck has a more robotic/synthetic potential
+        }
+      }
+    }
+  });
+
+  return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+};
+
+/**
+ * Generates short UI sound effects.
+ */
+export const generateSFX = async (type: 'select' | 'success' | 'error') => {
+  const sounds = {
+    select: "Blip!",
+    success: "Ding-waaaaaah!",
+    error: "Bzzzt-wonk."
+  };
+
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash-preview-tts",
+    contents: [{ parts: [{ text: sounds[type] }] }],
+    config: {
+      responseModalities: ['AUDIO' as any],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: { voiceName: 'Zephyr' }
         }
       }
     }

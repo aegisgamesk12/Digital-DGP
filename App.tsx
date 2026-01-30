@@ -1,8 +1,8 @@
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Stage, Difficulty, DGPState, PartOfSpeech, FridaySlot } from './types';
-import { generateSentenceBatch, gradeStage, generateAudioTrack } from './services/geminiService';
-import { AudioPlayer } from './components/AudioPlayer';
+import { generateSentenceBatch, gradeStage, generateAudioTrack, generateSFX } from './services/geminiService';
+import { AudioPlayer, AudioPlayerRef } from './components/AudioPlayer';
 
 const POS_LIST: PartOfSpeech[] = [
   'Noun', 'Verb', 'Verbal', 'Pronoun', 'Adjective', 'Adverb', 
@@ -45,9 +45,20 @@ const App: React.FC = () => {
     sentencePool: []
   });
 
-  const [hypeAudio, setHypeAudio] = useState<string | undefined>();
+  const [bgMusic, setBgMusic] = useState<string | undefined>();
+  const [selectSFX, setSelectSFX] = useState<string | undefined>();
+  const [successSFX, setSuccessSFX] = useState<string | undefined>();
+  const [errorSFX, setErrorSFX] = useState<string | undefined>();
   const [selectedWordIdx, setSelectedWordIdx] = useState<number | null>(null);
+  
+  const audioPlayerRef = useRef<AudioPlayerRef>(null);
   const isFetchingBuffer = useRef(false);
+
+  const triggerSelectSFX = useCallback(() => {
+    if (selectSFX && audioPlayerRef.current) {
+      audioPlayerRef.current.playSFX(selectSFX);
+    }
+  }, [selectSFX]);
 
   const resetStageHistory = useCallback(() => ({
     [Stage.MONDAY]: { tags: {} },
@@ -94,10 +105,15 @@ const App: React.FC = () => {
 
   useEffect(() => {
     fillSentencePool(gameState.difficulty, true);
-    generateAudioTrack(Stage.MONDAY).then(setHypeAudio);
+    generateAudioTrack(Stage.MONDAY).then(setBgMusic);
+    // Pre-cache SFX
+    generateSFX('select').then(setSelectSFX);
+    generateSFX('success').then(setSuccessSFX);
+    generateSFX('error').then(setErrorSFX);
   }, []);
 
   const changeDifficulty = (d: Difficulty) => {
+    triggerSelectSFX();
     setGameState(prev => ({ 
       ...prev, 
       difficulty: d, 
@@ -131,9 +147,13 @@ const App: React.FC = () => {
     });
   };
 
-  const toggleMusic = () => setGameState(prev => ({ ...prev, musicEnabled: !prev.musicEnabled }));
+  const toggleMusic = () => {
+    triggerSelectSFX();
+    setGameState(prev => ({ ...prev, musicEnabled: !prev.musicEnabled }));
+  };
 
   const handleMondayTag = (wordIdx: number, pos: PartOfSpeech) => {
+    triggerSelectSFX();
     setGameState(prev => {
       return {
         ...prev,
@@ -152,6 +172,7 @@ const App: React.FC = () => {
   };
 
   const handleMondaySubtype = (wordIdx: number, subType: string) => {
+    triggerSelectSFX();
     setGameState(prev => {
       const current = prev.history[Stage.MONDAY].tags[wordIdx] || {};
       return {
@@ -171,6 +192,7 @@ const App: React.FC = () => {
   };
 
   const handleTuesdayClick = (wordIdx: number, mode: 'subj' | 'verb' | 'compSubj' | 'compPred') => {
+    triggerSelectSFX();
     const keyMap: Record<string, string> = {
       subj: 'subjectIndices',
       verb: 'verbIndices',
@@ -189,6 +211,7 @@ const App: React.FC = () => {
 
   const handleFridaySlotClick = (slotId: string) => {
     if (selectedWordIdx === null) return;
+    triggerSelectSFX();
     setGameState(prev => {
       const newSlots = prev.history[Stage.FRIDAY].slots.map((s: FridaySlot) => 
         s.id === slotId ? { ...s, wordIdx: selectedWordIdx } : s
@@ -199,6 +222,7 @@ const App: React.FC = () => {
   };
 
   const toggleFridayRotation = (slotId: string) => {
+    triggerSelectSFX();
     setGameState(prev => {
       const newSlots = prev.history[Stage.FRIDAY].slots.map((s: FridaySlot) => 
         s.id === slotId ? { ...s, rotation: s.rotation === 0 ? 45 : 0 } : s
@@ -213,6 +237,7 @@ const App: React.FC = () => {
       const result = await gradeStage(gameState.currentStage, gameState.rawSentence, gameState.history[gameState.currentStage]);
       
       if (result.isCorrect) {
+        if (successSFX && audioPlayerRef.current) audioPlayerRef.current.playSFX(successSFX);
         const currentIndex = STAGE_ORDER.indexOf(gameState.currentStage);
         const nextStage = STAGE_ORDER[currentIndex + 1];
         
@@ -230,14 +255,15 @@ const App: React.FC = () => {
 
           if (nextStage) {
             const audio = await generateAudioTrack(nextStage);
-            setHypeAudio(audio);
+            setBgMusic(audio);
           }
         }
       } else {
+        if (errorSFX && audioPlayerRef.current) audioPlayerRef.current.playSFX(errorSFX);
         setGameState(prev => ({ ...prev, isLoading: false, feedback: result.feedback }));
       }
     } catch (e) {
-      setGameState(prev => ({ ...prev, isLoading: false, feedback: "Sigma Error." }));
+      setGameState(prev => ({ ...prev, isLoading: false, feedback: "Error." }));
     }
   };
 
@@ -318,22 +344,28 @@ const App: React.FC = () => {
                 type="number" 
                 className="w-full bg-zinc-900 border border-zinc-800 p-1 rounded-md text-lg font-black text-center text-white focus:border-cyan-500 outline-none"
                 value={gameState.history[Stage.WEDNESDAY].clauseCount}
-                onChange={(e) => setGameState(prev => ({
-                  ...prev,
-                  history: { ...prev.history, [Stage.WEDNESDAY]: { ...prev.history[Stage.WEDNESDAY], clauseCount: parseInt(e.target.value) } }
-                }))}
+                onChange={(e) => {
+                  triggerSelectSFX();
+                  setGameState(prev => ({
+                    ...prev,
+                    history: { ...prev.history, [Stage.WEDNESDAY]: { ...prev.history[Stage.WEDNESDAY], clauseCount: parseInt(e.target.value) } }
+                  }))
+                }}
               />
             </div>
-            <div className="w-full">
+            <div className="w-full mt-2">
               <label className="block text-[7px] uppercase text-fuchsia-500 mb-0.5 font-black tracking-widest text-center">Type</label>
               <div className="grid grid-cols-2 gap-1">
                 {['Simple', 'Compound', 'Complex', 'Comp-Complex'].map(type => (
                   <button
                     key={type}
-                    onClick={() => setGameState(prev => ({
-                      ...prev,
-                      history: { ...prev.history, [Stage.WEDNESDAY]: { ...prev.history[Stage.WEDNESDAY], sentenceType: type } }
-                    }))}
+                    onClick={() => {
+                      triggerSelectSFX();
+                      setGameState(prev => ({
+                        ...prev,
+                        history: { ...prev.history, [Stage.WEDNESDAY]: { ...prev.history[Stage.WEDNESDAY], sentenceType: type } }
+                      }))
+                    }}
                     className={`p-1 rounded-md border border-zinc-800 font-black text-[8px] transition-all ${gameState.history[Stage.WEDNESDAY].sentenceType === type ? 'bg-fuchsia-500 border-white text-white' : 'bg-zinc-900 text-zinc-500'}`}
                   >
                     {type}
@@ -375,7 +407,10 @@ const App: React.FC = () => {
                 return (
                   <button 
                     key={idx}
-                    onClick={() => setSelectedWordIdx(idx)}
+                    onClick={() => {
+                      triggerSelectSFX();
+                      setSelectedWordIdx(idx);
+                    }}
                     className={`px-1.5 py-0.5 rounded-sm font-black uppercase text-[8px] border transition-all ${selectedWordIdx === idx ? 'border-white bg-white text-black' : isUsed ? 'border-zinc-800 text-zinc-700 bg-black opacity-20 pointer-events-none' : 'border-cyan-500 bg-black text-cyan-400'}`}
                   >
                     {word}
@@ -414,7 +449,15 @@ const App: React.FC = () => {
                 ))}
               </div>
             </div>
-            <button onClick={() => setGameState(prev => ({...prev, history: {...prev.history, [Stage.FRIDAY]: {...prev.history[Stage.FRIDAY], slots: prev.history[Stage.FRIDAY].slots.map(s => ({...s, wordIdx: null}))}}}))} className="text-[7px] font-black text-zinc-600">Reset</button>
+            <button 
+              onClick={() => {
+                triggerSelectSFX();
+                setGameState(prev => ({...prev, history: {...prev.history, [Stage.FRIDAY]: {...prev.history[Stage.FRIDAY], slots: prev.history[Stage.FRIDAY].slots.map(s => ({...s, wordIdx: null}))}}}));
+              }} 
+              className="text-[7px] font-black text-zinc-600"
+            >
+              Reset
+            </button>
           </div>
         );
 
@@ -425,7 +468,7 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen bg-black text-white selection:bg-cyan-500 selection:text-black overflow-hidden flex flex-col">
-      <AudioPlayer base64Audio={hypeAudio} enabled={gameState.musicEnabled} />
+      <AudioPlayer ref={audioPlayerRef} bgMusicBase64={bgMusic} enabled={gameState.musicEnabled} />
       
       {/* Audio & Difficulty Control */}
       <div className="fixed top-1 left-1 z-[100] flex items-center gap-2 bg-zinc-950/80 p-0.5 pr-2 rounded-full border border-zinc-800 backdrop-blur-md">
@@ -474,7 +517,7 @@ const App: React.FC = () => {
           {gameState.isLoading && (
             <div className="absolute inset-0 bg-black/95 z-[60] flex flex-col items-center justify-center rounded-md">
               <div className="text-xl bangers animate-pulse phonk-gradient">RIZZING...</div>
-              <p className="text-[8px] font-black text-zinc-600 mt-2">SMOOTH VIBES INBOUND</p>
+              <p className="text-[8px] font-black text-zinc-600 mt-2">NEO-80s VIBES INBOUND</p>
             </div>
           )}
 
@@ -482,7 +525,7 @@ const App: React.FC = () => {
             <div className="w-full flex flex-col gap-1.5 flex-1 overflow-y-auto pr-1 custom-scrollbar">
               <div className="flex justify-between items-center gap-1.5 shrink-0 border-l-2 border-fuchsia-600 pl-2">
                 <div className="text-[9px] md:text-sm font-black tracking-tight text-white leading-tight truncate">"{gameState.rawSentence}"</div>
-                <div className="hidden sm:block text-[6px] font-black uppercase text-zinc-600">SMOOTH GAINS</div>
+                <div className="hidden sm:block text-[6px] font-black uppercase text-zinc-600">STRICTLY INSTRUMENTAL</div>
               </div>
               <div className="flex-1">
                 {renderStageContent()}

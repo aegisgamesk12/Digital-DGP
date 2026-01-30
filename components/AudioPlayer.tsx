@@ -1,5 +1,5 @@
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 
 function decode(base64: string) {
   const binaryString = atob(base64);
@@ -31,53 +31,75 @@ async function decodeAudioData(
 }
 
 interface AudioPlayerProps {
-  base64Audio?: string;
+  bgMusicBase64?: string;
   enabled: boolean;
 }
 
-export const AudioPlayer: React.FC<AudioPlayerProps> = ({ base64Audio, enabled }) => {
+export interface AudioPlayerRef {
+  playSFX: (base64: string) => void;
+}
+
+export const AudioPlayer = forwardRef<AudioPlayerRef, AudioPlayerProps>(({ bgMusicBase64, enabled }, ref) => {
   const audioContextRef = useRef<AudioContext | null>(null);
-  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const bgSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  const getCtx = () => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
+    }
+    return audioContextRef.current;
+  };
+
+  useImperativeHandle(ref, () => ({
+    playSFX: async (base64: string) => {
+      if (!enabled) return;
+      const ctx = getCtx();
+      if (ctx.state === 'suspended') await ctx.resume();
+      
+      const audioBuffer = await decodeAudioData(decode(base64), ctx, 24000, 1);
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+      source.start();
+    }
+  }));
 
   useEffect(() => {
-    if (!enabled && sourceRef.current) {
-      sourceRef.current.stop();
-      sourceRef.current = null;
+    if (!enabled && bgSourceRef.current) {
+      bgSourceRef.current.stop();
+      bgSourceRef.current = null;
       return;
     }
 
-    if (enabled && base64Audio) {
+    if (enabled && bgMusicBase64) {
       const play = async () => {
-        if (!audioContextRef.current) {
-          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 24000 });
-        }
-        const ctx = audioContextRef.current;
+        const ctx = getCtx();
         if (ctx.state === 'suspended') await ctx.resume();
 
-        const audioBuffer = await decodeAudioData(decode(base64Audio), ctx, 24000, 1);
+        const audioBuffer = await decodeAudioData(decode(bgMusicBase64), ctx, 24000, 1);
         
-        if (sourceRef.current) {
-          sourceRef.current.stop();
+        if (bgSourceRef.current) {
+          try { bgSourceRef.current.stop(); } catch(e) {}
         }
 
         const source = ctx.createBufferSource();
         source.buffer = audioBuffer;
-        source.loop = true; // Loop the Phonk "track"
+        source.loop = true;
         source.connect(ctx.destination);
         source.start();
-        sourceRef.current = source;
+        bgSourceRef.current = source;
       };
 
       play();
     }
 
     return () => {
-      if (sourceRef.current) {
-        sourceRef.current.stop();
-        sourceRef.current = null;
+      if (bgSourceRef.current) {
+        try { bgSourceRef.current.stop(); } catch(e) {}
+        bgSourceRef.current = null;
       }
     };
-  }, [base64Audio, enabled]);
+  }, [bgMusicBase64, enabled]);
 
   return null;
-};
+});
